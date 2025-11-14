@@ -5,16 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>正在访问</title>
     <style>
-        /* TG:@xiaohan7723开发*/
+        /* 基础样式：确保页面背景有区分度 */
         body, html {
             margin: 0;
             padding: 0;
             height: 100%;
             overflow: hidden;
             font-family: "Microsoft YaHei", Arial, sans-serif;
+            background: #f0f2f5; /* 微信/支付宝风格浅灰，避免全白 */
         }
-        /* TG:@xiaohan7723开发 */
-        .msg-container {
+
+        /* 加载提示：默认显示，确保用户能看到初始状态 */
+        .loading {
             position: absolute;
             top: 0;
             left: 0;
@@ -24,16 +26,8 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            padding: 0 20px;
-            box-sizing: border-box;
-        }
-        /* TG:@xiaohan7723开发 */
-        .loading {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            color: #666;
-            font-size: 16px;
+            background: #fff;
+            z-index: 100;
         }
         .loading .icon {
             width: 24px;
@@ -43,140 +37,206 @@
             border-radius: 50%;
             animation: spin 1.2s linear infinite;
         }
-        /* TG:@xiaohan7723开发 */
-        .error {
-            display: none;
-            flex-direction: column;
-            align-items: center;
-            gap: 16px;
-            text-align: center;
+        .loading .text {
+            color: #666;
+            font-size: 16px;
+            margin-top: 12px;
         }
-        .error .icon {
-            width: 48px;
-            height: 48px;
-            border: 2px solid #ff4d4f;
-            border-radius: 50%;
-            display: flex;
+
+        /* 核心：备用容器（始终存在，避免空白） */
+        .backup-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none; /* 默认隐藏，异常时显示 */
+            flex-direction: column;
             justify-content: center;
             align-items: center;
-            color: #ff4d4f;
-            font-size: 24px;
-            font-weight: bold;
+            padding: 0 20px;
+            box-sizing: border-box;
+            background: #f0f2f5;
+            z-index: 90;
         }
-        .error .text {
+        .backup-title {
+            font-size: 18px;
             color: #333;
-            font-size: 15px;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+        .backup-desc {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 24px;
+            text-align: center;
             line-height: 1.6;
         }
-        .error .contact {
-            color: #666;
-            font-size: 13px;
-            margin-top: 8px;
+        .backup-btn {
+            padding: 12px 30px;
+            background: #2c85e6;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(44, 133, 230, 0.3);
         }
-        /* TG:@xiaohan7723开发 */
+        .backup-btn:active {
+            background: #2474d3;
+        }
+
+        /* iframe：强制显示（即使加载失败也占满屏幕） */
         iframe {
             width: 100%;
             height: 100%;
             border: none;
-            display: none;
+            display: none; /* 初始隐藏，成功后显示 */
+            z-index: 10;
+            position: relative;
         }
-        /* TG:@xiaohan7723开发 */
+
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
     </style>
 </head>
 <body>
-    <!-- 加载/错误提示容器：统一居中 -->
-    <div class="msg-container">
-        <!-- 加载提示（初始显示） -->
-        <div class="loading" id="loading">
-            <div class="icon"></div>
-            <span>页面加载中...</span>
-        </div>
-        <!-- 错误提示（默认隐藏） -->
-        <div class="error" id="error">
-            <div class="icon">!</div>
-            <div class="text" id="errorText"></div>
-            <div class="contact">请联系小涵@xiaohan7723</div>
-        </div>
+    <!-- 加载提示（初始必显） -->
+    <div class="loading" id="loading">
+        <div class="icon"></div>
+        <div class="text">正在处理链接...</div>
     </div>
-    <!-- iframe保持全屏比例 -->
+
+    <!-- 备用容器（异常时显示，确保不空白） -->
+    <div class="backup-container" id="backupContainer">
+        <div class="backup-title">链接访问异常</div>
+        <div class="backup-desc" id="backupDesc">
+            无法通过当前方式加载页面，建议直接访问目标链接
+        </div>
+        <button class="backup-btn" id="backupBtn">点击跳转</button>
+    </div>
+
+    <!-- iframe（核心内容） -->
     <iframe id="embeddedPage" src=""></iframe>
 
     <script>
-        const loadingEl = document.getElementById('loading');
-        const errorEl = document.getElementById('error');
-        const errorTextEl = document.getElementById('errorText');
-        const iframeEl = document.getElementById('embeddedPage');
+        // 简化逻辑：减少出错点
+        const loading = document.getElementById('loading');
+        const backupContainer = document.getElementById('backupContainer');
+        const backupDesc = document.getElementById('backupDesc');
+        const backupBtn = document.getElementById('backupBtn');
+        const iframe = document.getElementById('embeddedPage');
+        let targetUrl = '';
 
-        // TG:@xiaohan7723开发
+        // 允许的域名（保持不变）
         const ALLOWED_DOMAINS = [
-            "chuzhong.icu"
-            "herae.icu"
+            "chuzhong.icu", "kefuxitong.xyz", "xhfkw.xyz", 
+            "kftxtzy.icu", "xiaohan7723.cn", "herae.icu", "hrearay.com"
         ];
 
-        // TG:@xiaohan7723开发
+        // 调试日志：方便定位问题
+        function log(msg) {
+            console.log('[访问日志]', msg);
+        }
+
+        // 获取参数（简化版）
         function getQueryParam(param) {
-            const urlParams = new URLSearchParams(window.location.search);
-            const value = urlParams.get(param);
+            const value = new URLSearchParams(window.location.search).get(param);
             return value ? value.trim() : null;
         }
 
-        // TG:@xiaohan7723开发
-        function decodeBase64Url(encodedUrl) {
+        // 解码函数（更健壮）
+        function decodeBase64Url(encoded) {
             try {
-                return decodeURIComponent(atob(encodedUrl).split('').map(c => {
-                    return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-                }).join(''));
+                if (!encoded) return null;
+                // 处理base64url格式
+                encoded = encoded.replace(/-/g, '+').replace(/_/g, '/');
+                // 补全填充符
+                while (encoded.length % 4 !== 0) encoded += '=';
+                // 解码并转义
+                const decoded = atob(encoded);
+                return decodeURIComponent(escape(decoded)); // 兼容特殊字符
             } catch (err) {
-                console.error('解码失败：', err);
+                log('解码失败：' + err.message);
                 return null;
             }
         }
 
-        // TG:@xiaohan7723开发
-        function isAllowedUrl(url) {
-            if (!url) return false;
+        // 验证域名
+        function isAllowed(url) {
             try {
                 const urlObj = new URL(url);
                 if (!['http:', 'https:'].includes(urlObj.protocol)) return false;
-                const targetDomain = urlObj.hostname;
-                return ALLOWED_DOMAINS.some(allowed => {
-                    return targetDomain === allowed || targetDomain.endsWith(`.${allowed}`);
-                });
+                const domain = urlObj.hostname;
+                return ALLOWED_DOMAINS.some(allowed => 
+                    domain === allowed || domain.endsWith('.' + allowed)
+                );
             } catch (err) {
+                log('域名验证失败：' + err.message);
                 return false;
             }
         }
 
-        // TG:@xiaohan7723开发
-        function showError(msg) {
-            loadingEl.style.display = 'none'; // 隐藏加载
-            errorTextEl.textContent = msg;   // 设置错误内容
-            errorEl.style.display = 'flex';  // 显示错误（居中）
+        // 显示备用页面（强制避免空白）
+        function showBackup(msg = '') {
+            loading.style.display = 'none';
+            iframe.style.display = 'none';
+            if (msg) backupDesc.textContent = msg;
+            backupContainer.style.display = 'flex';
         }
 
-        // 核心逻辑
-        const encodedUrl = getQueryParam('xiaohan');
-        if (encodedUrl) {
-            const decodedUrl = decodeBase64Url(encodedUrl);
-            if (decodedUrl && isAllowedUrl(decodedUrl)) {
-                iframeEl.src = decodedUrl;
-                iframeEl.onload = () => {
-                    loadingEl.style.display = 'none';
-                    iframeEl.style.display = 'block';
-                };
-                iframeEl.onerror = () => {
-                    showError('目标页面加载失败，请检查地址是否有效');
-                };
-            } else {
-                // 解码失败或域名不允许：居中报错
-                showError('参数无效或想偷接口');
+        // 主逻辑
+        try {
+            const encoded = getQueryParam('xiaohan');
+            log('获取到编码参数：' + encoded);
+
+            if (!encoded) {
+                showBackup('缺少必要的链接参数');
+                throw new Error('无编码参数');
             }
-        } else {
-            // 缺少参数：居中报错
-            showError('缺少必要的访问参数');
+
+            const decodedUrl = decodeBase64Url(encoded);
+            log('解码后URL：' + decodedUrl);
+
+            if (!decodedUrl || !isAllowed(decodedUrl)) {
+                showBackup('链接无效或未授权');
+                throw new Error('URL无效');
+            }
+
+            // 保存目标URL用于跳转
+            targetUrl = decodedUrl;
+            backupBtn.onclick = () => window.location.href = targetUrl;
+
+            // 强制设置iframe并显示（即使加载失败也不空白）
+            iframe.src = decodedUrl;
+            // 先隐藏加载，显示iframe（避免全白）
+            loading.style.display = 'none';
+            iframe.style.display = 'block';
+
+            // 超时检测（5秒，快速反馈）
+            const timeout = setTimeout(() => {
+                log('iframe加载超时');
+                showBackup('页面加载超时，建议直接跳转');
+            }, 5000);
+
+            // iframe加载成功（仅作为补充，失败不影响）
+            iframe.onload = () => {
+                clearTimeout(timeout);
+                log('iframe加载成功');
+                // 成功后仍显示iframe（不切换到备用）
+            };
+
+            // iframe加载错误
+            iframe.onerror = () => {
+                clearTimeout(timeout);
+                log('iframe加载错误');
+                showBackup('页面加载失败，点击按钮跳转');
+            };
+
+        } catch (err) {
+            log('主逻辑出错：' + err.message);
+            showBackup('处理链接时出错，请重试');
         }
     </script>
 </body>
